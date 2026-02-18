@@ -1,0 +1,1 @@
+# Makefile placeholder for A-Maze-ing project
