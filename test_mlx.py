@@ -84,7 +84,7 @@ def draw_maze_tiles(
     win_ptr: Any,
     grid: list[list[int]],
     assets: Assets,
-    margin: int = 20,
+    margin: int = 10,
 ) -> None:
     """
     Draw the maze by placing a tile image per cell based on its walls bitmask (0..15).
