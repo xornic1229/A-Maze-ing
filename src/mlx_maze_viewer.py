@@ -11,7 +11,7 @@
 #
 # The maze logic (generation/solving) is NOT handled here.
 # This file is strictly responsible for visualization.
-
+# For testing it use source .venv/bin/activate and then run python src/mlx_maze_viewer.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
