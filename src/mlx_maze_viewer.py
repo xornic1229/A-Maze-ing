@@ -95,6 +95,45 @@ def load_tiles(m: mlx.Mlx, mlx_ptr: Any) -> Assets:
     base_size = 32
     return Assets(tiles = tiles, tile_width=base_size, tile_height=base_size)
 
+def fill_margins_with_background( m: mlx.Mlx, mlx_ptr: Any, window_ptr: Any,
+    window_width: int, window_height: int, margin: int) -> None:
+    """
+    Fill the window margins with green neon color using a green XPM asset.
+    """
+    try:
+        result = m.mlx_xpm_file_to_image(mlx_ptr, "assets/green_margin.xpm")
+        if not result or not result[0]:
+            raise RuntimeError("green_margin.xpm could not be loaded")
+
+        green_img = result[0]
+
+        # If the wrapper returns width/height, use them; otherwise assume 32x32
+        tile_w = result[1] if len(result) > 1 and isinstance(result[1], int) else 32
+        tile_h = result[2] if len(result) > 2 and isinstance(result[2], int) else 32
+
+        # Top margin
+        for y in range(0, margin, tile_h):
+            for x in range(0, window_width, tile_w):
+                m.mlx_put_image_to_window(mlx_ptr, window_ptr, green_img, x, y)
+
+        # Bottom margin
+        for y in range(window_height - margin, window_height, tile_h):
+            for x in range(0, window_width, tile_w):
+                m.mlx_put_image_to_window(mlx_ptr, window_ptr, green_img, x, y)
+
+        # Left margin (excluding corners already filled)
+        for y in range(margin, window_height - margin, tile_h):
+            for x in range(0, margin, tile_w):
+                m.mlx_put_image_to_window(mlx_ptr, window_ptr, green_img, x, y)
+
+        # Right margin (excluding corners already filled)
+        for y in range(margin, window_height - margin, tile_h):
+            for x in range(window_width - margin, window_width, tile_w):
+                m.mlx_put_image_to_window(mlx_ptr, window_ptr, green_img, x, y)
+
+    except Exception as e:
+        raise RuntimeError(f"Error creating green margin: {e}")
+
 def draw_maze_tiles(m: mlx.Mlx,mlx_ptr: Any,window_ptr: Any,matrix: list[list[int]],
 assets: Assets,margin: int) -> None:
     """
@@ -139,7 +178,7 @@ def main() -> None:
     # 4) Load neon XPM tile set (0..F) from ./assets
     assets = load_tiles(m, mlx_ptr)
     # 5) Compute window size from maze + margins
-    margin = 0
+    margin = 2  # Increased margin for better visibility of green color
     win_width = margin * 2 + len(matrix[0]) * assets.tile_width
     win_height = margin * 2 + len(matrix) * assets.tile_height
 
@@ -148,10 +187,13 @@ def main() -> None:
     if not win_ptr:
         raise RuntimeError("mlx_new_window() returned NULL")
 
-    # 6) Draw maze using scaled tiles
+    # 6) Fill margins with green neon color #39FF14
+    fill_margins_with_background(m, mlx_ptr, win_ptr, win_width, win_height, margin)
+
+    # 7) Draw maze using scaled tiles
     draw_maze_tiles(m, mlx_ptr, win_ptr, matrix, assets, margin=margin)
 
-    # 7) Close handling (ESC + window close button)
+    # 8) Close handling (ESC + window close button)
     def key_handler(keycode: int, _param: Any) -> int:
         if keycode == 65307:  # ESC
             m.mlx_loop_exit(mlx_ptr)
@@ -166,7 +208,7 @@ def main() -> None:
 
     m.mlx_hook(win_ptr, 17, 0, close_handler, None)
 
-    # 8) Loop
+    # 9) Loop
     m.mlx_loop(mlx_ptr)
 
 if __name__ == "__main__":
