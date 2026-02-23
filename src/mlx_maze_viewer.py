@@ -404,3 +404,88 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+"""
+Este módulo implementa un visor de laberintos en MLX (Python wrapper) centrado en la parte visual.
+El laberinto se representa como una matriz de valores hexadecimales (0..F), donde cada valor es un
+bitmask de paredes, y se dibuja usando tiles XPM predefinidos (uno por cada valor 0..F).
+
+───────────────────────────────────────────────────────────────────────────────
+1) Estructura del mapa (archivo .txt)
+───────────────────────────────────────────────────────────────────────────────
+El archivo contiene:
+  - Varias líneas con el laberinto en hexadecimal (sin espacios)
+  - Las 3 últimas líneas: 
+      entry  -> "row,col"
+      exit   -> "row,col"
+      moves  -> cadena de movimientos con 'N', 'S', 'E', 'W'
+
+load_maze_from_file() lee el archivo, separa esas 3 últimas líneas y construye:
+  - matrix: lista de listas con enteros (cada carácter hex -> int & 0xF)
+  - entry, exit_: coordenadas (row, col)
+  - moves: string con instrucciones para construir el camino correcto
+
+───────────────────────────────────────────────────────────────────────────────
+2) Assets y temas de color
+───────────────────────────────────────────────────────────────────────────────
+Los tiles se cargan con load_tiles() desde assets/{color}/0.xpm ... F.xpm.
+Los temas disponibles están en COLOR_CYCLE (green/pink/rainbow). Se precargan todos los sets de tiles
+para cambiar de tema al instante.
+
+Además se cargan “pixels” de 1x1 (XPM) con load_pixel():
+  - green_px -> portal de entrada
+  - pink_px  -> portal de salida
+  - red_px   -> línea del camino
+
+───────────────────────────────────────────────────────────────────────────────
+3) Game dataclass (estado global)
+───────────────────────────────────────────────────────────────────────────────
+Toda la información necesaria para render, input y animación se agrupa en la dataclass Game:
+  - punteros MLX (mlx_ptr, win_ptr)
+  - datos del maze (matrix, entry, exit_, moves)
+  - assets actuales y por color
+  - parámetros de ventana (tile_size, margin, win_width, win_height)
+  - estado de animación (path, path_progress, animating, last_update, animation_speed)
+
+Esto evita pasar decenas de parámetros entre funciones: todas reciben solo `game`.
+
+───────────────────────────────────────────────────────────────────────────────
+4) Pipeline de dibujo (redraw_all)
+───────────────────────────────────────────────────────────────────────────────
+redraw_all(game) repinta la escena completa en orden:
+  1) fill_margins_with_background -> dibuja el borde/margen exterior (neón)
+  2) draw_maze_tiles              -> dibuja cada celda usando el tile correspondiente al valor 0..F
+  3) draw_path_upto               -> dibuja la parte del camino ya “animada” (según path_progress)
+  4) draw_portal_marker           -> dibuja los portales encima (anillos)
+
+Esto garantiza que el camino y los portales siempre queden por encima del laberinto.
+
+───────────────────────────────────────────────────────────────────────────────
+5) Camino (path) y dibujo como línea conectada
+───────────────────────────────────────────────────────────────────────────────
+build_path_from_moves(entry, moves) construye una lista de coordenadas (path) siguiendo las instrucciones.
+El camino se dibuja como una línea conectada de centro a centro entre celdas:
+  - cell_center_px convierte (row,col) a coordenadas de píxel del centro del tile
+  - draw_line_bresenham dibuja una línea pixel a pixel (con grosor configurable)
+  - draw_path_segment dibuja el segmento entre dos celdas consecutivas
+
+Para evitar que la línea roja se superponga a los portales, el primer y último segmento se recortan:
+  - offset_point_towards desplaza el punto inicial/final cierta distancia hacia el siguiente/anterior
+  - PORTAL_OUTER_RADIUS define cuánto recortamos (radio del anillo)
+
+───────────────────────────────────────────────────────────────────────────────
+6) Input y animación (sin bloquear MLX)
+───────────────────────────────────────────────────────────────────────────────
+key_handler():
+  - ESC cierra el loop
+  - 'c' cambia el tema de color y llama a redraw_all() manteniendo el camino ya dibujado
+  - 's' inicia la animación del camino (si ya terminó, reinicia path_progress)
+
+loop_hook():
+  - se ejecuta continuamente por mlx_loop_hook()
+  - si animating=True y ha pasado el tiempo animation_speed:
+      - incrementa path_progress y dibuja el siguiente segmento
+  - cuando se completa el path, animating pasa a False
+
+Esto permite una animación progresiva estética sin usar sleep() ni bloquear el loop principal.
+"""
