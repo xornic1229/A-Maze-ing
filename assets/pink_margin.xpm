@@ -1,5 +1,5 @@
 /* XPM */
-static char * green_margin_xpm[] = {
+static char * pink_margin_xpm[] = {
 "1 1 1 1",
-"# c #FF00FF",
+"G c #FF00FF",
 "G"};

@@ -35,33 +35,48 @@ class Assets:
     tile_height: int
 
 
-def load_maze_from_file(filename: str) -> list[list[int]]:
+def load_maze_from_file(filename: str):
     """
-    Load a maze from a text file containing hexadecimal values.
-    Each hex value (0-F) represents a wall bitmask:
-    0=no walls, 1=N, 2=E, 4=S, 8=W, F=all walls, etc.
+    Returns:
+        matrix: list[list[int]]
+        entry: (row, col)
+        exit: (row, col)
     """
+
     matrix = []
+    entry = None
+    exit_ = None
 
     try:
         with open(filename, "r") as file:
-            for line in file:
-                line = line.strip()  # Remove spaces and newlines in the beggining and end of the line
-                if not line or line.startswith("#"):  # Goes to the next line if the line is empty or is a comment
-                    continue
+            lines = [line.strip() for line in file]
 
-                # Parse hexadecimal values from the line
-                row = []
-                for hex_val in line:
-                    try:
-                        value = int(hex_val, 16)
-                        value = value & 0xF
-                        row.append(value)
-                    except ValueError:
-                        row.append(0)
+        # Remove empty trailing lines
+        while lines and lines[-1] == "":
+            lines.pop()
 
-                if row:
-                    matrix.append(row)
+        # Last two lines are entry and exit
+        exit_line = lines.pop()
+        entry_line = lines.pop()
+
+        # Parse entry and exit
+        entry = tuple(map(int, entry_line.split(",")))
+        exit_ = tuple(map(int, exit_line.split(",")))
+
+        # Remaining lines are maze
+        for line in lines:
+            if not line:
+                continue
+
+            row = []
+            for hex_val in line:
+                try:
+                    value = int(hex_val, 16) & 0xF
+                    row.append(value)
+                except ValueError:
+                    row.append(0)
+
+            matrix.append(row)
 
     except FileNotFoundError:
         raise FileNotFoundError(f"File not found: {filename}")
@@ -69,9 +84,9 @@ def load_maze_from_file(filename: str) -> list[list[int]]:
         raise Exception(f"Error reading file {filename}: {e}")
 
     if not matrix:
-        raise ValueError(f"No valid maze data found in {filename}")
+        raise ValueError("Maze data is empty")
 
-    return matrix
+    return matrix, entry, exit_
 
 
 def load_tiles(m: mlx.Mlx, mlx_ptr: Any, color: str) -> Assets:
@@ -106,10 +121,13 @@ def fill_margins_with_background(
     window_height: int,
     margin: int,
     color: str,
-) -> None:
+) -> Any:
     """
     Fill the window margins with a specified neon color using a 1x1 XPM asset:
     assets/green_margin.xpm, assets/pink_margin.xpm, assets/rainbow_margin.xpm
+
+    Returns:
+        margin_px: 1x1 image pointer used for drawing the margin (can be reused elsewhere).
     """
     margin_path = f"assets/{color}_margin.xpm"
     try:
@@ -120,7 +138,7 @@ def fill_margins_with_background(
     if not result or not result[0]:
         raise RuntimeError(f"{margin_path} could not be loaded")
 
-    margin_px = result[0]  # expected 1x1 image pointer
+    margin_px = result[0]  # 1x1 image pointer
 
     # Top + Bottom
     for y in range(margin):
@@ -133,6 +151,8 @@ def fill_margins_with_background(
         for y in range(window_height):
             m.mlx_put_image_to_window(mlx_ptr, window_ptr, margin_px, x, y)
             m.mlx_put_image_to_window(mlx_ptr, window_ptr, margin_px, window_width - 1 - x, y)
+
+    return margin_px
 
 
 def draw_maze_tiles(
@@ -160,6 +180,43 @@ def draw_maze_tiles(
             m.mlx_put_image_to_window(mlx_ptr, window_ptr, tile_image, draw_x, draw_y)
 
 
+def draw_portal_marker(
+    m: mlx.Mlx,
+    mlx_ptr: Any,
+    win_ptr: Any,
+    position: tuple[int, int],
+    margin: int,
+    tile_size: int,
+    pixel_img: Any,  # 1x1 XPM image pointer
+) -> None:
+    """
+    Draw a neon portal ring inside a cell using a 1x1 pixel image.
+    No transparency needed. Does not cover the maze.
+    """
+
+    row, col = position
+
+    # Cell center in window pixels
+    cx = margin + col * tile_size + tile_size // 2
+    cy = margin + row * tile_size + tile_size // 2
+
+    # Portal ring parameters (tweak these)
+    outer_r = 10
+    inner_r = 7
+
+    outer2 = outer_r * outer_r
+    inner2 = inner_r * inner_r
+
+    # Draw ring: points where inner_r^2 <= dx^2+dy^2 <= outer_r^2
+    for dy in range(-outer_r, outer_r + 1):
+        for dx in range(-outer_r, outer_r + 1):
+            d2 = dx * dx + dy * dy
+            if inner2 <= d2 <= outer2:
+                # Jagged effect
+                if (dx * dx + dy * 3) % 7 != 0:
+                    m.mlx_put_image_to_window(mlx_ptr, win_ptr, pixel_img, cx + dx, cy + dy)
+
+
 def change_color(
     m: mlx.Mlx,
     mlx_ptr: Any,
@@ -170,12 +227,15 @@ def change_color(
     window_width: int,
     window_height: int,
     color: str,
-) -> None:
+) -> Any:
     """
     Redraw margin + maze using the selected color theme.
+    Returns:
+        margin_px (1x1 image pointer) used for that margin color.
     """
-    fill_margins_with_background(m, mlx_ptr, window_ptr, window_width, window_height, margin, color)
+    margin_px = fill_margins_with_background(m, mlx_ptr, window_ptr, window_width, window_height, margin, color)
     draw_maze_tiles(m, mlx_ptr, window_ptr, matrix, assets, margin=margin)
+    return margin_px
 
 
 def main() -> None:
@@ -186,7 +246,7 @@ def main() -> None:
     if not mlx_ptr:
         raise RuntimeError("mlx_init() returned NULL")
 
-    matrix = load_maze_from_file(maze_file)
+    matrix, entry, exit_ = load_maze_from_file(maze_file)
 
     margin = MARGIN
     max_cols = max(len(r) for r in matrix)
@@ -205,12 +265,25 @@ def main() -> None:
         "rainbow": load_tiles(m, mlx_ptr, "rainbow"),
     }
 
+    # Preload 1x1 pixels for portals (these exist already because you use them for margins)
+    green_px_res = m.mlx_xpm_file_to_image(mlx_ptr, "assets/green_margin.xpm")
+    pink_px_res = m.mlx_xpm_file_to_image(mlx_ptr, "assets/pink_margin.xpm")
+    if not green_px_res or not green_px_res[0]:
+        raise RuntimeError("assets/green_margin.xpm could not be loaded")
+    if not pink_px_res or not pink_px_res[0]:
+        raise RuntimeError("assets/pink_margin.xpm could not be loaded")
+    green_px = green_px_res[0]
+    pink_px = pink_px_res[0]
+
     # Start color
     color_index = 0
     current_color = COLOR_CYCLE[color_index]
     assets = assets_by_color[current_color]
 
+    # First draw
     change_color(m, mlx_ptr, win_ptr, matrix, assets, margin, win_width, win_height, current_color)
+    draw_portal_marker(m, mlx_ptr, win_ptr, entry, margin, 32, green_px)
+    draw_portal_marker(m, mlx_ptr, win_ptr, exit_, margin, 32, pink_px)
 
     def key_handler(keycode: int, _param: Any) -> int:
         nonlocal color_index, current_color, assets
@@ -223,7 +296,12 @@ def main() -> None:
             color_index = (color_index + 1) % len(COLOR_CYCLE)
             current_color = COLOR_CYCLE[color_index]
             assets = assets_by_color[current_color]
+
             change_color(m, mlx_ptr, win_ptr, matrix, assets, margin, win_width, win_height, current_color)
+
+            # Re-draw portals on top after redraw
+            draw_portal_marker(m, mlx_ptr, win_ptr, entry, margin, 32, green_px)
+            draw_portal_marker(m, mlx_ptr, win_ptr, exit_, margin, 32, pink_px)
             return 0
 
         return 0
