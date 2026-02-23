@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 import time
-import mlx
+import mlx # pyright: ignore[reportMissingImports]
 
 MAPA_A_CARGAR = "mapas_prueba/mapa_masivo.txt"  # Change this to load different mazes
 
@@ -307,6 +307,7 @@ def key_handler(keycode: int, game: Game) -> int:
 
 def loop_hook(game: Game) -> int:
     """Main loop hook to handle path animation over time."""
+    
     if not game.animating:
         return 0
 
