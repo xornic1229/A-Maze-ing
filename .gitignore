@@ -20,3 +20,8 @@ Thumbs.db
 
 # Project specific
 *.log
+.mypy_cache/
+.pytest_cache/
+build/
+dist/
+*.egg-info/

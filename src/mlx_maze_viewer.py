@@ -1,12 +1,19 @@
 # mlx_maze_viewer.py
 
 from __future__ import annotations
+import argparse
 from dataclasses import dataclass
-from typing import Any
+import os
+import subprocess
+import sys
 import time
+from typing import Any
 import mlx  # pyright: ignore[reportMissingImports]
 
-MAPA_A_CARGAR = "mapas_prueba/mapa_masivo.txt"  # Change this to load different mazes
+from config import read_config
+
+DEFAULT_MAP_PATH = "map/generated_map.txt"
+DEFAULT_CONFIG_PATH = "config.txt"
 
 MARGIN = 2  # Margin in pixels around the maze, used to create a border and space for portal markers, also helps prevent drawing issues at the edges of the window
 TILE_SIZE = 32  # Size of each tile in pixels, used for calculating window size and drawing positions
@@ -34,6 +41,7 @@ class Game:
     entry: tuple[int, int]  # Coordinates of the maze entry point (row, column)
     exit_: tuple[int, int]  # Coordinates of the maze exit point (row, column)
     moves: str  # String of moves (N, S, E, W) that represents the path through the maze from entry to exit, used for animation
+    map_path: str  # Path to the maze file currently displayed
 
     # Rendering / theme
     assets_by_color: dict[str, Assets]  # Dictionary mapping color themes to their corresponding loaded assets, allowing for easy switching of themes
@@ -79,8 +87,12 @@ def load_maze_from_file(filename: str) -> tuple[list[list[int]], tuple[int, int]
     exit_line = lines.pop()
     entry_line = lines.pop()
 
-    entry = tuple(map(int, entry_line.split(",")))
-    exit_ = tuple(map(int, exit_line.split(",")))
+    entry_xy = tuple(map(int, entry_line.split(",")))
+    exit_xy = tuple(map(int, exit_line.split(",")))
+
+    # The map format stores coordinates as x,y; the viewer works internally as row,col.
+    entry = (entry_xy[1], entry_xy[0])
+    exit_ = (exit_xy[1], exit_xy[0])
 
     for line in lines:
         if not line:
@@ -285,8 +297,53 @@ def redraw_all(game: Game) -> None:
     draw_portal_marker(game, game.exit_, game.pink_px)
 
 
+def reload_maze_from_disk(game: Game) -> None:
+    """Reload maze state from disk and redraw current scene."""
+    matrix, entry, exit_, moves = load_maze_from_file(game.map_path)
+    game.matrix = matrix
+    game.entry = entry
+    game.exit_ = exit_
+    game.moves = moves
+    game.path = build_path_from_moves(entry, moves)
+    game.path_progress = 0
+    game.animating = False
+    game.reverse_animating = False
+    redraw_all(game)
+
+
+def regenerate_and_reload(game: Game) -> None:
+    """Generate a fresh maze from config.txt and display it."""
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    config_path = os.path.join(project_root, DEFAULT_CONFIG_PATH)
+    entrypoint_path = os.path.join(project_root, "a_maze_ing.py")
+
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"config file not found: {config_path}")
+    if not os.path.exists(entrypoint_path):
+        raise FileNotFoundError(f"entrypoint not found: {entrypoint_path}")
+
+    result = subprocess.run(
+        [sys.executable, entrypoint_path, config_path],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        command_output = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise RuntimeError(f"maze regeneration failed: {command_output}")
+
+    config = read_config(config_path)
+    generated_map_path = config.output_file
+    if not os.path.isabs(generated_map_path):
+        generated_map_path = os.path.join(project_root, generated_map_path)
+
+    game.map_path = generated_map_path
+    reload_maze_from_disk(game)
+
+
 def key_handler(keycode: int, game: Game) -> int:
-    """Handle key presses for quitting, changing color theme, and starting/erasing animation."""
+    """Handle key presses for quit/theme/regenerate and path animation."""
     if keycode == 65307:  # ESC
         game.m.mlx_loop_exit(game.mlx_ptr)
         return 0
@@ -296,6 +353,14 @@ def key_handler(keycode: int, game: Game) -> int:
         game.current_color = COLOR_CYCLE[game.color_index]
         game.assets = game.assets_by_color[game.current_color]
         redraw_all(game)
+        return 0
+
+    if keycode == 110:  # 'n'
+        try:
+            regenerate_and_reload(game)
+            print(f"Generated and loaded new maze from {game.map_path}")
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(f"Could not generate a new maze: {exc}")
         return 0
 
     if keycode == 115:  # 's'
@@ -356,12 +421,17 @@ def loop_hook(game: Game) -> int:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="MLX maze viewer")
+    parser.add_argument("map_file", nargs="?", default=DEFAULT_MAP_PATH)
+    args = parser.parse_args()
+
     m = mlx.Mlx()
     mlx_ptr = m.mlx_init()
     if not mlx_ptr:
         raise RuntimeError("mlx_init() failed")
 
-    matrix, entry, exit_, moves = load_maze_from_file(MAPA_A_CARGAR)
+    map_path = os.path.abspath(args.map_file)
+    matrix, entry, exit_, moves = load_maze_from_file(map_path)
 
     max_cols = max(len(r) for r in matrix)
     win_width = MARGIN * 2 + max_cols * TILE_SIZE
@@ -397,6 +467,7 @@ def main() -> None:
         entry=entry,
         exit_=exit_,
         moves=moves,
+        map_path=map_path,
 
         assets_by_color=assets_by_color,
         color_index=color_index,
@@ -432,89 +503,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-"""
-Este módulo implementa un visor de laberintos en MLX (Python wrapper) centrado en la parte visual.
-El laberinto se representa como una matriz de valores hexadecimales (0..F), donde cada valor es un
-bitmask de paredes, y se dibuja usando tiles XPM predefinidos (uno por cada valor 0..F).
-
-───────────────────────────────────────────────────────────────────────────────
-1) Estructura del mapa (archivo .txt)
-───────────────────────────────────────────────────────────────────────────────
-El archivo contiene:
-  - Varias líneas con el laberinto en hexadecimal (sin espacios)
-  - Las 3 últimas líneas:
-      entry  -> "row,col"
-      exit   -> "row,col"
-      moves  -> cadena de movimientos con 'N', 'S', 'E', 'W'
-
-load_maze_from_file() lee el archivo, separa esas 3 últimas líneas y construye:
-  - matrix: lista de listas con enteros (cada carácter hex -> int & 0xF)
-  - entry, exit_: coordenadas (row, col)
-  - moves: string con instrucciones para construir el camino correcto
-
-───────────────────────────────────────────────────────────────────────────────
-2) Assets y temas de color
-───────────────────────────────────────────────────────────────────────────────
-Los tiles se cargan con load_tiles() desde assets/{color}/0.xpm ... F.xpm.
-Los temas disponibles están en COLOR_CYCLE (green/pink/rainbow). Se precargan todos los sets de tiles
-para cambiar de tema al instante.
-
-Además se cargan “pixels” de 1x1 (XPM) con load_pixel():
-  - green_px -> portal de entrada
-  - pink_px  -> portal de salida
-  - red_px   -> línea del camino
-  - black_px -> borrado del camino (reverse animation)
-
-───────────────────────────────────────────────────────────────────────────────
-3) Game dataclass (estado global)
-───────────────────────────────────────────────────────────────────────────────
-Toda la información necesaria para render, input y animación se agrupa en la dataclass Game:
-  - punteros MLX (mlx_ptr, win_ptr)
-  - datos del maze (matrix, entry, exit_, moves)
-  - assets actuales y por color
-  - parámetros de ventana (tile_size, margin, win_width, win_height)
-  - estado de animación (path, path_progress, animating, reverse_animating, last_update, animation_speed)
-
-Esto evita pasar decenas de parámetros entre funciones: todas reciben solo `game`.
-
-───────────────────────────────────────────────────────────────────────────────
-4) Pipeline de dibujo (redraw_all)
-───────────────────────────────────────────────────────────────────────────────
-redraw_all(game) repinta la escena completa en orden:
-  1) fill_margins_with_background -> dibuja el borde/margen exterior (neón)
-  2) draw_maze_tiles              -> dibuja cada celda usando el tile correspondiente al valor 0..F
-  3) draw_path_upto               -> dibuja la parte del camino ya “animada” (según path_progress)
-  4) draw_portal_marker           -> dibuja los portales encima (anillos)
-
-Esto garantiza que el camino y los portales siempre queden por encima del laberinto.
-
-───────────────────────────────────────────────────────────────────────────────
-5) Camino (path) y dibujo como línea conectada
-───────────────────────────────────────────────────────────────────────────────
-build_path_from_moves(entry, moves) construye una lista de coordenadas (path) siguiendo las instrucciones.
-El camino se dibuja como una línea conectada de centro a centro entre celdas:
-  - cell_center_px convierte (row,col) a coordenadas de píxel del centro del tile
-  - draw_line_bresenham dibuja una línea pixel a pixel (con grosor configurable)
-  - draw_path_segment dibuja el segmento entre dos celdas consecutivas
-
-Para evitar que la línea se superponga a los portales, el primer y último segmento se recortan:
-  - offset_point_towards desplaza el punto inicial/final cierta distancia hacia el siguiente/anterior
-  - PORTAL_OUTER_RADIUS define cuánto recortamos (radio del anillo)
-
-───────────────────────────────────────────────────────────────────────────────
-6) Input y animación (sin bloquear MLX)
-───────────────────────────────────────────────────────────────────────────────
-key_handler():
-  - ESC cierra el loop
-  - 'c' cambia el tema de color y llama a redraw_all() manteniendo lo ya dibujado
-  - 's' alterna entre dibujar el camino (rojo) y borrarlo (negro) con la misma velocidad, sin bloquear.
-
-loop_hook():
-  - se ejecuta continuamente por mlx_loop_hook()
-  - si animating=True: dibuja segmentos progresivamente (entry -> exit)
-  - si reverse_animating=True: borra segmentos progresivamente (exit -> entry)
-  - usa last_update y animation_speed para controlar la velocidad sin sleep().
-
-Esto permite una animación progresiva estética sin bloquear el loop principal.
-"""

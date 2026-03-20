@@ -1,0 +1,10 @@
+# Default configuration for A-Maze-ing
+WIDTH=50
+HEIGHT=30
+ENTRY=0,0
+EXIT=49,29
+OUTPUT_FILE=map/generated_map.txt
+PERFECT=True
+# SEED is optional. Leave commented for random mazes each run.
+# SEED=42
+ALGORITHM=dfs
