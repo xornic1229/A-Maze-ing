@@ -5,7 +5,6 @@ Usage:
 """
 
 from __future__ import annotations
-from cli import main
 
 import os
 import sys
@@ -16,4 +15,5 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 if __name__ == "__main__":
+    from cli import main
     raise SystemExit(main())

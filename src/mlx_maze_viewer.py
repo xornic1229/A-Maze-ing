@@ -7,75 +7,85 @@ import os
 import subprocess
 import sys
 import time
-from typing import Any
-import mlx  # pyright: ignore[reportMissingImports]
+from typing import TYPE_CHECKING, Any
 
+# pyright: ignore[reportMissingImports]
+
+if TYPE_CHECKING:
+    import mlx
+else:
+    import mlx  # type: ignore[import-untyped]
 from config import read_config
 
 DEFAULT_MAP_PATH = "map/generated_map.txt"
 DEFAULT_CONFIG_PATH = "config.txt"
 
-MARGIN = 2  # Margin in pixels around the maze, used to create a border and space for portal markers, also helps prevent drawing issues at the edges of the window
-TILE_SIZE = 32  # Size of each tile in pixels, used for calculating window size and drawing positions
-COLOR_CYCLE = ["green", "pink", "rainbow"]  # List of color themes to cycle through when pressing 'c'
-PORTAL_OUTER_RADIUS = 10  # This radius determines how much the path line is shortened at the start and end to avoid overlapping the portal markers
-LINE_THICKNESS = 4  # Thickness of the path line in pixels
+MARGIN = 2  # Margin in pixels around the maze; keeps free space
+# around the maze for portal markers and prevents edge glitches.
+TILE_SIZE = 32  # Size of each tile in pixels.
+COLOR_CYCLE = ["green", "pink", "rainbow"]  # Color themes toggled with 'c'.
+# How much the path line is shortened to avoid overlapping the portals.
+PORTAL_OUTER_RADIUS = 10
+LINE_THICKNESS = 4  # Thickness of the path line in pixels.
 
 
 @dataclass(frozen=True)
 class Assets:
-    tiles: list[Any]  # List of tile images indexed by the hexadecimal value from the maze matrix
-    tile_width: int  # Width of each tile in pixels
-    tile_height: int  # Height of each tile in pixels
+    tiles: list[Any]
+    tile_width: int
+    tile_height: int
 
 
 @dataclass
 class Game:
-    # MLX
-    m: mlx.Mlx  # Reference to the MLX instance for calling MLX functions
-    mlx_ptr: Any  # Pointer returned by mlx_init(), needed for all MLX calls
-    win_ptr: Any  # Pointer to the created window, needed for drawing and event handling
+    # MLX core objects
+    m: mlx.Mlx
+    mlx_ptr: Any
+    win_ptr: Any
 
-    # Maze
-    matrix: list[list[int]]  # 2D list representing the maze structure, where each cell's value determines which tile to draw
-    entry: tuple[int, int]  # Coordinates of the maze entry point (row, column)
-    exit_: tuple[int, int]  # Coordinates of the maze exit point (row, column)
-    moves: str  # String of moves (N, S, E, W) that represents the path through the maze from entry to exit, used for animation
-    map_path: str  # Path to the maze file currently displayed
+    # Maze data and file path
+    matrix: list[list[int]]
+    entry: tuple[int, int]
+    exit_: tuple[int, int]
+    moves: str
+    map_path: str
 
     # Rendering / theme
-    assets_by_color: dict[str, Assets]  # Dictionary mapping color themes to their corresponding loaded assets, allowing for easy switching of themes
-    color_index: int  # Index to track the current color theme in the COLOR_CYCLE list
-    current_color: str  # The current color theme being used, which determines which set of tile images to draw and which margin color to use
-    assets: Assets  # The currently active set of assets (tiles) based on the selected color theme, used for drawing the maze tiles
+    assets_by_color: dict[str, Assets]
+    color_index: int
+    current_color: str
+    assets: Assets
 
     # Window / grid
-    tile_size: int  # Size of each tile in pixels
-    margin: int  # Margin around the maze in pixels
-    win_width: int  # Width of the window in pixels
-    win_height: int  # Height of the window in pixels
+    tile_size: int
+    margin: int
+    win_width: int
+    win_height: int
 
     # Pixels
-    green_px: Any  # Pixel image used for drawing the green portal marker (entry)
-    pink_px: Any  # Pixel image used for drawing the pink portal marker (exit)
-    red_px: Any  # Pixel image used for drawing the path line (red)
-    black_px: Any  # Pixel image used for deleting the path line (black)
+    green_px: Any
+    pink_px: Any
+    red_px: Any
+    black_px: Any
 
     # Path animation state
-    path: list[tuple[int, int]]  # List of coordinates representing the full path through the maze, built from the entry point and moves string
-    path_progress: int  # Index into the path list indicating how many segments of the path have been drawn so far, used for animating the path drawing
-    animating: bool  # Forward animation active (entry -> exit)
-    reverse_animating: bool  # Reverse animation active (exit -> entry), used to "erase" the path
-    last_update: float  # Timestamp of the last update during animation, used to control the animation speed by ensuring updates only happen after a certain time interval has passed
-    animation_speed: float  # Time in seconds between animation updates, controlling how fast the path is drawn during animation (e.g., 0.01 for 10ms per segment)
+    path: list[tuple[int, int]]
+    path_progress: int
+    animating: bool
+    reverse_animating: bool
+    last_update: float
+    animation_speed: float
 
 
-def load_maze_from_file(filename: str) -> tuple[list[list[int]], tuple[int, int], tuple[int, int], str]:
-    """Read maze data in from the selected map with the first lines as the maze matrix in hexadecimal,
-    and the last 3 lines as entry, exit, and moves. It returns the matrix as a list of lists of integers,
-    the entry and exit as coordinate tuples, and the moves as a string."""
+def load_maze_from_file(
+    filename: str,
+) -> tuple[list[list[int]], tuple[int, int], tuple[int, int], str]:
+    """Load maze matrix (hex rows) plus entry, exit and moves.
 
-    matrix: list[list[int]] = []  # Matrix to hold the map tiles as integrers
+    Returns matrix, entry, exit, and moves string.
+    """
+
+    matrix: list[list[int]] = []
 
     with open(filename, "r") as file:
         lines = [line.strip() for line in file]
@@ -90,7 +100,8 @@ def load_maze_from_file(filename: str) -> tuple[list[list[int]], tuple[int, int]
     entry_xy = tuple(map(int, entry_line.split(",")))
     exit_xy = tuple(map(int, exit_line.split(",")))
 
-    # The map format stores coordinates as x,y; the viewer works internally as row,col.
+    # The map format stores coordinates as x,y; the viewer works internally
+    # as row,col.
     entry = (entry_xy[1], entry_xy[0])
     exit_ = (exit_xy[1], exit_xy[0])
 
@@ -101,20 +112,22 @@ def load_maze_from_file(filename: str) -> tuple[list[list[int]], tuple[int, int]
         for hex_val in line:
             try:
                 row.append(int(hex_val, 16) & 0xF)
-            except ValueError as e:
-                raise ValueError(f"Invalid hexadecimal value '{hex_val}' in maze matrix with error: {e}")
+            except ValueError as exc:
+                msg = f"Invalid hexadecimal value '{hex_val}' in maze matrix"
+                raise ValueError(msg) from exc
         matrix.append(row)
 
     if not matrix:
-        raise ValueError("Maze file is empty or does not contain a valid matrix")
+        raise ValueError("Maze file is empty or missing matrix data")
 
     return matrix, entry, exit_, moves
 
 
 def load_tiles(m: mlx.Mlx, mlx_ptr: Any, color: str) -> Assets:
-    """Load tile images for a given color theme and it returns an Assets object containing the list
-    of tile images and their dimensions. It expects the tile images to be named as '0.xpm', '1.xpm', ..., 'F.xpm'
-    in the corresponding color folder under assets (e.g., 'assets/green/0.xpm')."""
+    """Load tile images for a given color theme.
+
+    Expects 'assets/<color>/0.xpm' .. 'F.xpm'.
+    """
 
     hex_names = "0123456789ABCDEF"
     tiles: list[Any] = []
@@ -136,10 +149,14 @@ def load_pixel(m: mlx.Mlx, mlx_ptr: Any, path: str) -> Any:
     return res[0]
 
 
-def build_path_from_moves(entry: tuple[int, int], moves: str) -> list[tuple[int, int]]:
-    """Given an entry point and a string of moves, build the full path as a list of the coordinates of the
-    cells that will form the path. The moves string consists of characters 'N', 'S', 'E', 'W' representing
-    the direction of movement from one cell to the next."""
+def build_path_from_moves(
+    entry: tuple[int, int],
+    moves: str,
+) -> list[tuple[int, int]]:
+    """Build a list of path cells from an entry point and move string.
+
+    Moves use chars 'N', 'S', 'E', 'W'.
+    """
 
     row, col = entry
     path = [(row, col)]
@@ -168,8 +185,14 @@ def cell_center_px(game: Game, pos: tuple[int, int]) -> tuple[int, int]:
     return x, y
 
 
-def offset_point_towards(x0: int, y0: int, x1: int, y1: int, offset: int) -> tuple[int, int]:
-    """Calculate a point that is 'offset' pixels away from (x0, y0) towards (x1, y1)."""
+def offset_point_towards(
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    offset: int,
+) -> tuple[int, int]:
+    """Calculate a point offset pixels away from (x0, y0) towards (x1, y1)."""
     dx = x1 - x0
     dy = y1 - y0
     length = (dx * dx + dy * dy) ** 0.5
@@ -181,8 +204,16 @@ def offset_point_towards(x0: int, y0: int, x1: int, y1: int, offset: int) -> tup
     return int(x0 + nx * offset), int(y0 + ny * offset)
 
 
-def draw_line_bresenham(game: Game, x0: int, y0: int, x1: int, y1: int, pixel_img: Any, thickness: int = 1) -> None:
-    """Draw a line from (x0, y0) to (x1, y1) using Bresenham's algorithm, with optional thickness."""
+def draw_line_bresenham(
+    game: Game,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    pixel_img: Any,
+    thickness: int = 1,
+) -> None:
+    """Draw a line with Bresenham's algorithm (optionally thicker than 1px)."""
     m = game.m
 
     dx = abs(x1 - x0)
@@ -193,12 +224,24 @@ def draw_line_bresenham(game: Game, x0: int, y0: int, x1: int, y1: int, pixel_im
 
     while True:
         if thickness <= 1:
-            m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, pixel_img, x0, y0)
+            m.mlx_put_image_to_window(
+                game.mlx_ptr,
+                game.win_ptr,
+                pixel_img,
+                x0,
+                y0,
+            )
         else:
             t = thickness // 2
             for oy in range(-t, t + 1):
                 for ox in range(-t, t + 1):
-                    m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, pixel_img, x0 + ox, y0 + oy)
+                    m.mlx_put_image_to_window(
+                        game.mlx_ptr,
+                        game.win_ptr,
+                        pixel_img,
+                        x0 + ox,
+                        y0 + oy,
+                    )
 
         if x0 == x1 and y0 == y1:
             break
@@ -212,23 +255,48 @@ def draw_line_bresenham(game: Game, x0: int, y0: int, x1: int, y1: int, pixel_im
             y0 += sy
 
 
-def draw_path_segment(game: Game, a: tuple[int, int], b: tuple[int, int], index: int, pixel_img: Any) -> None:
-    """Draw a segment of the path from cell 'a' to cell 'b', with adjustments for portal entry/exit."""
+def draw_path_segment(
+    game: Game,
+    a: tuple[int, int],
+    b: tuple[int, int],
+    index: int,
+    pixel_img: Any,
+) -> None:
+    """Draw a segment of the path from cell 'a' to 'b'."""
     ax, ay = cell_center_px(game, a)
     bx, by = cell_center_px(game, b)
 
     if index == 1:
-        ax, ay = offset_point_towards(ax, ay, bx, by, PORTAL_OUTER_RADIUS + 2)
+        ax, ay = offset_point_towards(
+            ax,
+            ay,
+            bx,
+            by,
+            PORTAL_OUTER_RADIUS + 2,
+        )
 
     if index == len(game.path) - 1:
-        bx, by = offset_point_towards(bx, by, ax, ay, PORTAL_OUTER_RADIUS + 2)
+        bx, by = offset_point_towards(
+            bx,
+            by,
+            ax,
+            ay,
+            PORTAL_OUTER_RADIUS + 2,
+        )
 
-    draw_line_bresenham(game, ax, ay, bx, by, pixel_img=pixel_img, thickness=LINE_THICKNESS)
+    draw_line_bresenham(
+        game,
+        ax,
+        ay,
+        bx,
+        by,
+        pixel_img=pixel_img,
+        thickness=LINE_THICKNESS,
+    )
 
 
 def fill_margins_with_background(game: Game) -> None:
-    """Fill the margins around the maze with the appropriate background color for having the same
-    thickness in the exterior wall and the other walls."""
+    """Fill the margins around the maze with the matching background."""
 
     m = game.m
     color = game.current_color
@@ -237,13 +305,37 @@ def fill_margins_with_background(game: Game) -> None:
 
     for y in range(game.margin):
         for x in range(game.win_width):
-            m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, margin_px, x, y)
-            m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, margin_px, x, game.win_height - 1 - y)
+            m.mlx_put_image_to_window(
+                game.mlx_ptr,
+                game.win_ptr,
+                margin_px,
+                x,
+                y,
+            )
+            m.mlx_put_image_to_window(
+                game.mlx_ptr,
+                game.win_ptr,
+                margin_px,
+                x,
+                game.win_height - 1 - y,
+            )
 
     for x in range(game.margin):
         for y in range(game.win_height):
-            m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, margin_px, x, y)
-            m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, margin_px, game.win_width - 1 - x, y)
+            m.mlx_put_image_to_window(
+                game.mlx_ptr,
+                game.win_ptr,
+                margin_px,
+                x,
+                y,
+            )
+            m.mlx_put_image_to_window(
+                game.mlx_ptr,
+                game.win_ptr,
+                margin_px,
+                game.win_width - 1 - x,
+                y,
+            )
 
 
 def draw_maze_tiles(game: Game) -> None:
@@ -257,16 +349,34 @@ def draw_maze_tiles(game: Game) -> None:
                 tile = game.assets.tiles[val]
                 x = game.margin + c * game.tile_size
                 y = game.margin + r * game.tile_size
-                m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, tile, x, y)
+                m.mlx_put_image_to_window(
+                    game.mlx_ptr,
+                    game.win_ptr,
+                    tile,
+                    x,
+                    y,
+                )
 
 
-def draw_portal_marker(game: Game, pos: tuple[int, int], pixel_img: Any) -> None:
-    """Draw a circular marker around the portal entry/exit using the given pixel image."""
+def draw_portal_marker(
+    game: Game,
+    pos: tuple[int, int],
+    pixel_img: Any,
+) -> None:
+    """Draw a circular marker around the portal entry/exit."""
     m = game.m
     row, col = pos
 
-    cx = game.margin + col * game.tile_size + game.tile_size // 2
-    cy = game.margin + row * game.tile_size + game.tile_size // 2
+    cx = (
+        game.margin
+        + col * game.tile_size
+        + game.tile_size // 2
+    )
+    cy = (
+        game.margin
+        + row * game.tile_size
+        + game.tile_size // 2
+    )
 
     outer_r = PORTAL_OUTER_RADIUS
     inner_r = 7
@@ -277,7 +387,13 @@ def draw_portal_marker(game: Game, pos: tuple[int, int], pixel_img: Any) -> None
         for dx in range(-outer_r, outer_r + 1):
             d2 = dx * dx + dy * dy
             if inner2 <= d2 <= outer2:
-                m.mlx_put_image_to_window(game.mlx_ptr, game.win_ptr, pixel_img, cx + dx, cy + dy)
+                m.mlx_put_image_to_window(
+                    game.mlx_ptr,
+                    game.win_ptr,
+                    pixel_img,
+                    cx + dx,
+                    cy + dy,
+                )
 
 
 def draw_path_upto(game: Game, progress_points: int) -> None:
@@ -285,11 +401,17 @@ def draw_path_upto(game: Game, progress_points: int) -> None:
     if progress_points <= 1:
         return
     for i in range(1, progress_points):
-        draw_path_segment(game, game.path[i - 1], game.path[i], i, pixel_img=game.red_px)
+        draw_path_segment(
+            game,
+            game.path[i - 1],
+            game.path[i],
+            i,
+            pixel_img=game.red_px,
+        )
 
 
 def redraw_all(game: Game) -> None:
-    """Redraw the entire scene: margins, maze tiles, path up to current progress, and portal markers."""
+    """Redraw margins, maze tiles, current path and portal markers."""
     fill_margins_with_background(game)
     draw_maze_tiles(game)
     draw_path_upto(game, game.path_progress)
@@ -313,7 +435,9 @@ def reload_maze_from_disk(game: Game) -> None:
 
 def regenerate_and_reload(game: Game) -> None:
     """Generate a fresh maze from config.txt and display it."""
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    project_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..")
+    )
     config_path = os.path.join(project_root, DEFAULT_CONFIG_PATH)
     entrypoint_path = os.path.join(project_root, "a_maze_ing.py")
 
@@ -330,7 +454,11 @@ def regenerate_and_reload(game: Game) -> None:
         check=False,
     )
     if result.returncode != 0:
-        command_output = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        command_output = (
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "unknown error"
+        )
         raise RuntimeError(f"maze regeneration failed: {command_output}")
 
     config = read_config(config_path)
@@ -383,7 +511,7 @@ def key_handler(keycode: int, game: Game) -> int:
 
 
 def loop_hook(game: Game) -> int:
-    """Main loop hook to handle path animation over time (draw forward / erase backward)."""
+    """Loop hook to handle path animation (draw forward / erase backward)."""
     now = time.time()
 
     if not game.animating and not game.reverse_animating:
@@ -401,7 +529,13 @@ def loop_hook(game: Game) -> int:
                 game.path_progress = 1
             else:
                 i = game.path_progress
-                draw_path_segment(game, game.path[i - 1], game.path[i], i, pixel_img=game.red_px)
+                draw_path_segment(
+                    game,
+                    game.path[i - 1],
+                    game.path[i],
+                    i,
+                    pixel_img=game.red_px,
+                )
                 game.path_progress += 1
         else:
             game.animating = False
@@ -409,10 +543,17 @@ def loop_hook(game: Game) -> int:
 
     # Reverse (black) animation - erase from exit to entry
     if game.reverse_animating:
-        # path_progress is the "end" index currently visible; erase segment (path_progress-2 -> path_progress-1)
+        # path_progress is the "end" index visible; erase segment
+        # (path_progress-2 -> path_progress-1)
         if game.path_progress > 1:
             i = game.path_progress - 1
-            draw_path_segment(game, game.path[i - 1], game.path[i], i, pixel_img=game.black_px)
+            draw_path_segment(
+                game,
+                game.path[i - 1],
+                game.path[i],
+                i,
+                pixel_img=game.black_px,
+            )
             game.path_progress -= 1
         else:
             game.reverse_animating = False
@@ -437,7 +578,12 @@ def main() -> None:
     win_width = MARGIN * 2 + max_cols * TILE_SIZE
     win_height = MARGIN * 2 + len(matrix) * TILE_SIZE
 
-    win_ptr = m.mlx_new_window(mlx_ptr, win_width, win_height, "A-Maze-ing")
+    win_ptr = m.mlx_new_window(
+        mlx_ptr,
+        win_width,
+        win_height,
+        "A-Maze-ing",
+    )
     if not win_ptr:
         raise RuntimeError("mlx_new_window() failed")
 
@@ -495,7 +641,13 @@ def main() -> None:
     redraw_all(game)
 
     m.mlx_key_hook(win_ptr, key_handler, game)
-    m.mlx_hook(win_ptr, 17, 0, lambda _p: (m.mlx_loop_exit(mlx_ptr), 0)[1], None)
+    m.mlx_hook(
+        win_ptr,
+        17,
+        0,
+        lambda _p: (m.mlx_loop_exit(mlx_ptr), 0)[1],
+        None,
+    )
     m.mlx_loop_hook(mlx_ptr, loop_hook, game)
 
     m.mlx_loop(mlx_ptr)

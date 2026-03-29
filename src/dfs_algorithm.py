@@ -5,7 +5,7 @@ Use MazeGenerator from generator.py for new code.
 
 from __future__ import annotations
 
-from generator import MazeGenerator, validate_walls
+from generator import MazeGenerator
 
 
 def generate_perfect_maze(

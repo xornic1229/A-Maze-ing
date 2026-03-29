@@ -1,4 +1,4 @@
-#!/home/jaialons/proyectos/amazing/.venv/bin/python3
+#!/goinfre/jaialons/maze/.venv/bin/python3
 import sys
 from mypy.stubtest import main
 if __name__ == '__main__':

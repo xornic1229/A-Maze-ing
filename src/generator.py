@@ -43,6 +43,7 @@ OPPOSITE: dict[int, int] = {
     WEST: EAST,
 }
 
+
 @dataclass
 class MazeGenerator:
     """Generate perfect or imperfect mazes using DFS backtracking."""
@@ -67,7 +68,12 @@ class MazeGenerator:
 
     def _check_bounds(self, point: tuple[int, int], key: str) -> None:
         x_coord, y_coord = point
-        if x_coord < 0 or x_coord >= self.width or y_coord < 0 or y_coord >= self.height:
+        if (
+            x_coord < 0
+            or x_coord >= self.width
+            or y_coord < 0
+            or y_coord >= self.height
+        ):
             raise ValueError(f"{key} out of bounds")
 
     def _in_bounds_rc(self, row: int, col: int) -> bool:
@@ -82,7 +88,10 @@ class MazeGenerator:
         return y_coord, x_coord
 
     def _new_maze(self) -> list[list[int]]:
-        return [[FULL_WALLS for _ in range(self.width)] for _ in range(self.height)]
+        return [
+            [FULL_WALLS for _ in range(self.width)]
+            for _ in range(self.height)
+        ]
 
     def _unvisited_neighbors(
         self,
@@ -94,7 +103,8 @@ class MazeGenerator:
         for direction, (delta_row, delta_col) in DIRS.items():
             n_row = row + delta_row
             n_col = col + delta_col
-            if self._in_bounds_rc(n_row, n_col) and (n_row, n_col) not in visited:
+            in_bounds = self._in_bounds_rc(n_row, n_col)
+            if in_bounds and (n_row, n_col) not in visited:
                 neighbors.append((n_row, n_col, direction))
         return neighbors
 
@@ -134,7 +144,11 @@ class MazeGenerator:
 
         return maze
 
-    def _add_extra_openings(self, maze: list[list[int]], ratio: float = 0.10) -> None:
+    def _add_extra_openings(
+        self,
+        maze: list[list[int]],
+        ratio: float = 0.10,
+    ) -> None:
         candidates: list[tuple[int, int, int]] = []
         for row in range(self.height):
             for col in range(self.width):
@@ -164,7 +178,12 @@ class MazeGenerator:
             self._break_wall(maze, row, col, n_row, n_col, direction)
             openings_done += 1
 
-    def _force_closed_cell(self, maze: list[list[int]], row: int, col: int) -> None:
+    def _force_closed_cell(
+        self,
+        maze: list[list[int]],
+        row: int,
+        col: int,
+    ) -> None:
         maze[row][col] = FULL_WALLS
         for direction, (delta_row, delta_col) in DIRS.items():
             n_row = row + delta_row
@@ -183,7 +202,12 @@ class MazeGenerator:
         for row_offset, row_pattern in enumerate(pattern):
             for col_offset, mark in enumerate(row_pattern):
                 if mark == "1":
-                    required.add((start_row + row_offset, start_col + col_offset))
+                    required.add(
+                        (
+                            start_row + row_offset,
+                            start_col + col_offset,
+                        )
+                    )
         return required
 
     def _is_exact_pattern(
@@ -198,7 +222,8 @@ class MazeGenerator:
         # Any F outside required pattern cells is forbidden.
         for row in range(self.height):
             for col in range(self.width):
-                if maze[row][col] == FULL_WALLS and (row, col) not in required_positions:
+                is_full = maze[row][col] == FULL_WALLS
+                if is_full and (row, col) not in required_positions:
                     return False
 
         # Inside the 5x7 block, only required positions can be F.
@@ -216,7 +241,12 @@ class MazeGenerator:
     def _stamp_42_pattern(
         self,
         maze: list[list[int]],
-    ) -> tuple[bool, str | None, set[tuple[int, int]], tuple[int, int, int, int] | None]:
+    ) -> tuple[
+        bool,
+        str | None,
+        set[tuple[int, int]],
+        tuple[int, int, int, int] | None,
+    ]:
         # 1 means "force this cell fully closed".
         pattern = [
             "1000111",
@@ -236,14 +266,21 @@ class MazeGenerator:
         start_row = (self.height - pattern_height) // 2
         start_col = (self.width - pattern_width) // 2
 
-        required_positions = self._pattern_required_positions(start_row, start_col, pattern)
+        required_positions = self._pattern_required_positions(
+            start_row,
+            start_col,
+            pattern,
+        )
 
         entry_row, entry_col = self._entry_row_col()
         exit_row, exit_col = self._exit_row_col()
 
         for row, col in required_positions:
-                if (row, col) in {(entry_row, entry_col), (exit_row, exit_col)}:
-                    return False, "interferes_with_portals", set(), None
+            if (row, col) in {
+                (entry_row, entry_col),
+                (exit_row, exit_col),
+            }:
+                return False, "interferes_with_portals", set(), None
 
         for row, col in required_positions:
             self._force_closed_cell(maze, row, col)
@@ -292,7 +329,12 @@ class MazeGenerator:
             if not self.perfect:
                 self._add_extra_openings(maze)
 
-            pattern_placed, omit_reason, required_positions, bounds = self._stamp_42_pattern(maze)
+            (
+                pattern_placed,
+                omit_reason,
+                required_positions,
+                bounds,
+            ) = self._stamp_42_pattern(maze)
 
             if not pattern_placed:
                 self.pattern_placed = False
@@ -321,7 +363,8 @@ class MazeGenerator:
                 self.pattern_omit_reason = None
                 return maze
 
-        # If after many retries the pattern always blocks the path, keep a valid maze without 42.
+    # If after many retries the pattern always blocks the path,
+    # keep a valid maze without 42.
         fallback_maze = self._generate_perfect()
         if not self.perfect:
             self._add_extra_openings(fallback_maze)
@@ -330,10 +373,15 @@ class MazeGenerator:
         return fallback_maze
 
 
-def maze_to_hex_lines(maze: list[list[int]]) -> list[str]:
+def maze_to_hex_lines(
+    maze: list[list[int]],
+) -> list[str]:
     """Serialize maze matrix to hexadecimal rows."""
 
-    return ["".join(f"{cell & 0xF:X}" for cell in row) for row in maze]
+    return [
+        "".join(f"{cell & 0xF:X}" for cell in row)
+        for row in maze
+    ]
 
 
 def validate_walls(maze: list[list[int]]) -> bool:
@@ -349,13 +397,21 @@ def validate_walls(maze: list[list[int]]) -> bool:
         for col in range(width):
             walls = maze[row][col]
 
-            if row > 0 and bool(walls & NORTH) != bool(maze[row - 1][col] & SOUTH):
+            if row > 0 and bool(walls & NORTH) != bool(
+                maze[row - 1][col] & SOUTH
+            ):
                 return False
-            if row < height - 1 and bool(walls & SOUTH) != bool(maze[row + 1][col] & NORTH):
+            if row < height - 1 and bool(walls & SOUTH) != bool(
+                maze[row + 1][col] & NORTH
+            ):
                 return False
-            if col > 0 and bool(walls & WEST) != bool(maze[row][col - 1] & EAST):
+            if col > 0 and bool(walls & WEST) != bool(
+                maze[row][col - 1] & EAST
+            ):
                 return False
-            if col < width - 1 and bool(walls & EAST) != bool(maze[row][col + 1] & WEST):
+            if col < width - 1 and bool(walls & EAST) != bool(
+                maze[row][col + 1] & WEST
+            ):
                 return False
 
     return True

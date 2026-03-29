@@ -54,14 +54,21 @@ def run(config: MazeConfig) -> None:
         raise ValueError("Generated maze is inconsistent (wall mismatch)")
 
     moves = shortest_path_moves(maze, config.entry, config.exit_)
-    write_output_file(config.output_file, maze, config.entry, config.exit_, moves)
+    write_output_file(
+        config.output_file,
+        maze,
+        config.entry,
+        config.exit_,
+        moves,
+    )
 
     print(f"Maze generated in {config.output_file}")
     if not generator.pattern_placed:
         reason = generator.pattern_omit_reason or "unknown_reason"
         print(
-            "Warning: '42' pattern omitted "
-            f"({reason}). Allowed causes: maze too small or interference with portals/path."
+            "Warning: '42' omitted "
+            f"({reason}). Maze too small "
+            "or interferes with portals/path."
         )
 
 

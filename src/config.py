@@ -49,8 +49,13 @@ def _validate_bounds(config: MazeConfig) -> None:
     if config.entry == config.exit_:
         raise ValueError("ENTRY and EXIT must be different")
 
-    for key, (x_coord, y_coord) in (("ENTRY", config.entry), ("EXIT", config.exit_)):
-        if x_coord < 0 or x_coord >= config.width or y_coord < 0 or y_coord >= config.height:
+    for key, (x_coord, y_coord) in (
+        ("ENTRY", config.entry),
+        ("EXIT", config.exit_),
+    ):
+        if x_coord < 0 or x_coord >= config.width:
+            raise ValueError(f"{key} is out of maze bounds")
+        if y_coord < 0 or y_coord >= config.height:
             raise ValueError(f"{key} is out of maze bounds")
 
 
@@ -66,17 +71,26 @@ def read_config(path: str) -> MazeConfig:
                 continue
 
             if "=" not in line:
-                raise ValueError(f"Invalid config line {line_number}: '{line}'")
+                msg = f"Invalid config line {line_number}: {line!r}"
+                raise ValueError(msg)
 
             key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip()
             if not key or not value:
-                raise ValueError(f"Invalid config line {line_number}: '{line}'")
+                msg = f"Invalid config line {line_number}: {line!r}"
+                raise ValueError(msg)
 
             raw_values[key.upper()] = value
 
-    required = ["WIDTH", "HEIGHT", "ENTRY", "EXIT", "OUTPUT_FILE", "PERFECT"]
+    required = [
+        "WIDTH",
+        "HEIGHT",
+        "ENTRY",
+        "EXIT",
+        "OUTPUT_FILE",
+        "PERFECT",
+    ]
     for key in required:
         if key not in raw_values:
             raise ValueError(f"Missing mandatory config key: {key}")
