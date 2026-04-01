@@ -24,5 +24,9 @@ clean:
 	rm -rf build dist
 
 lint:
-	flake8 a_maze_ing.py src
-	$(PYTHON) -m mypy a_maze_ing.py src --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	flake8 .
+	$(PYTHON) -m mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+
+lint-strict:
+	flake8 .
+	$(PYTHON) -m mypy . --strict --ignore-missing-imports
